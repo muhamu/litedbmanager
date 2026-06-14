@@ -1,0 +1,21 @@
+# Node
+node_modules
+dist
+dist-ssr
+*.local
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Rust / Tauri
+src-tauri/target/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.sw?
