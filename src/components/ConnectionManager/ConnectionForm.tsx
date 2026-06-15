@@ -22,6 +22,7 @@ const defaults: ProfileInput = {
 const DB_TYPES = [
   { value: "mysql", label: "MySQL / MariaDB", defaultPort: 3306 },
   { value: "postgres", label: "PostgreSQL", defaultPort: 5432 },
+  { value: "clickhouse", label: "ClickHouse", defaultPort: 8123 },
 ];
 
 export function ConnectionForm({ onSave }: ConnectionFormProps) {
@@ -145,8 +146,8 @@ export function ConnectionForm({ onSave }: ConnectionFormProps) {
         />
       </div>
       <Input
-        label={form.db_type === "postgres" ? "Database (required)" : "Database (optional)"}
-        placeholder={form.db_type === "postgres" ? "my_database" : "my_database"}
+        label={form.db_type === "postgres" ? "Database (required)" : form.db_type === "clickhouse" ? "Database (default: default)" : "Database (optional)"}
+        placeholder={form.db_type === "clickhouse" ? "default" : "my_database"}
         value={form.database ?? ""}
         onChange={(e) => update("database", e.target.value || null)}
       />

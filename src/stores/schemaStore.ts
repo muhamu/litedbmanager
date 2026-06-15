@@ -34,7 +34,9 @@ interface SchemaState {
   objectCreateStmt: string | null;
   objectRowCount: number | null;
   objectLoading: boolean;
-  objectViewTab: "data" | "ddl";
+  objectLoadingMore: boolean;
+  objectHasMore: boolean;
+  objectViewTab: "data" | "columns" | "ddl";
 
   // Loading flags
   loading: Record<string, boolean>;
@@ -55,11 +57,14 @@ interface SchemaState {
   loadDatabases: (profileId: string) => Promise<void>;
   toggleDatabase: (profileId: string, db: string) => Promise<void>;
   toggleTable: (profileId: string, db: string, table: string) => Promise<void>;
+  reloadTable: (profileId: string, db: string, table: string) => Promise<void>;
+  reloadDatabase: (profileId: string, db: string) => Promise<void>;
   closeContextMenu: () => void;
   clearSchema: () => void;
   setContextMenu: (menu: SchemaState["contextMenu"]) => void;
   selectObject: (profileId: string, obj: SelectedObject) => Promise<void>;
-  setObjectViewTab: (tab: "data" | "ddl") => void;
+  loadMoreObjectData: (profileId: string) => Promise<void>;
+  setObjectViewTab: (tab: "data" | "columns" | "ddl") => void;
   closeObjectViewer: () => void;
 }
 
@@ -82,6 +87,8 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
   objectCreateStmt: null,
   objectRowCount: null,
   objectLoading: false,
+  objectLoadingMore: false,
+  objectHasMore: false,
   objectViewTab: "data",
 
   clearSchema: () =>
@@ -100,6 +107,7 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
       objectData: null,
       objectCreateStmt: null,
       objectRowCount: null,
+      objectHasMore: false,
     }),
 
   loadDatabases: async (profileId: string) => {
@@ -172,15 +180,10 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
       errors: { ...st.errors, [loadKey]: "" },
     }));
     try {
-      const [columns, indexes, foreignKeys] = await Promise.all([
-        api.listColumns(profileId, db, table),
-        api.listIndexes(profileId, db, table),
-        api.listForeignKeys(profileId, db, table),
-      ]);
+      // Columns first — show the field list immediately (fast SHOW FULL COLUMNS).
+      const columns = await api.listColumns(profileId, db, table);
       set((st) => ({
         tableColumns: { ...st.tableColumns, [tblKey]: columns },
-        tableIndexes: { ...st.tableIndexes, [tblKey]: indexes },
-        tableForeignKeys: { ...st.tableForeignKeys, [tblKey]: foreignKeys },
         expandedTables: { ...st.expandedTables, [tblKey]: true },
         loading: { ...st.loading, [loadKey]: false },
       }));
@@ -190,7 +193,41 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
         loading: { ...st.loading, [loadKey]: false },
         errors: { ...st.errors, [loadKey]: msg },
       }));
+      return;
     }
+    // Indexes + FKs in the background — they must not block the field list.
+    Promise.allSettled([
+      api.listIndexes(profileId, db, table),
+      api.listForeignKeys(profileId, db, table),
+    ]).then(([idx, fk]) => {
+      set((st) => ({
+        tableIndexes: idx.status === "fulfilled" ? { ...st.tableIndexes, [tblKey]: idx.value } : st.tableIndexes,
+        tableForeignKeys: fk.status === "fulfilled" ? { ...st.tableForeignKeys, [tblKey]: fk.value } : st.tableForeignKeys,
+      }));
+    });
+  },
+
+  reloadTable: async (profileId: string, db: string, table: string) => {
+    const tblKey = `${db}.${table}`;
+    try {
+      const [columns, indexes, foreignKeys] = await Promise.all([
+        api.listColumns(profileId, db, table),
+        api.listIndexes(profileId, db, table),
+        api.listForeignKeys(profileId, db, table),
+      ]);
+      set((st) => ({
+        tableColumns: { ...st.tableColumns, [tblKey]: columns },
+        tableIndexes: { ...st.tableIndexes, [tblKey]: indexes },
+        tableForeignKeys: { ...st.tableForeignKeys, [tblKey]: foreignKeys },
+      }));
+    } catch { /* ignore — refresh is best-effort */ }
+  },
+
+  reloadDatabase: async (profileId: string, db: string) => {
+    try {
+      const items = await api.listTables(profileId, db);
+      set((st) => ({ schemaItems: { ...st.schemaItems, [db]: items } }));
+    } catch { /* ignore */ }
   },
 
   closeContextMenu: () => set({ contextMenu: null }),
@@ -198,55 +235,81 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
   setContextMenu: (menu) => set({ contextMenu: menu }),
 
   selectObject: async (profileId: string, obj: SelectedObject) => {
+    const PAGE = 200;
     set({
       selectedObject: obj,
+      selectedDb: obj.database,
       objectLoading: true,
       objectData: null,
       objectCreateStmt: null,
       objectRowCount: null,
+      objectHasMore: false,
     });
 
+    const isTabular = obj.type === "table" || obj.type === "view";
+    const tblKey = `${obj.database}.${obj.name}`;
+
     try {
-      // Load CREATE statement for all object types
-      const createStmt = await api.getCreateStatement(
-        profileId,
-        obj.database,
-        obj.name,
-        obj.type,
-      );
+      // Fetch everything in parallel: DDL + data + count + columns
+      const [createStmt, tableData, rowCount, cols, idxs, fks] = await Promise.allSettled([
+        api.getCreateStatement(profileId, obj.database, obj.name, obj.type),
+        isTabular ? api.showTableData(profileId, obj.database, obj.name, PAGE, 0) : Promise.resolve(null),
+        isTabular && obj.type === "table" ? api.countTableRows(profileId, obj.database, obj.name) : Promise.resolve(null),
+        isTabular && !get().tableColumns[tblKey] ? api.listColumns(profileId, obj.database, obj.name) : Promise.resolve(null),
+        isTabular && !get().tableIndexes[tblKey] ? api.listIndexes(profileId, obj.database, obj.name) : Promise.resolve(null),
+        isTabular && !get().tableForeignKeys[tblKey] ? api.listForeignKeys(profileId, obj.database, obj.name) : Promise.resolve(null),
+      ]);
 
-      // For tables and views, also load data
-      let data: QueryResult | null = null;
-      let rowCount: number | null = null;
+      const ddl = createStmt.status === "fulfilled" ? createStmt.value : `-- Error loading DDL --`;
+      const data = tableData.status === "fulfilled" ? tableData.value : null;
+      const count = rowCount.status === "fulfilled" ? rowCount.value : null;
 
-      if (obj.type === "table" || obj.type === "view") {
-        try {
-          const [tableData, count] = await Promise.all([
-            api.showTableData(profileId, obj.database, obj.name, 1000, 0),
-            obj.type === "table"
-              ? api.countTableRows(profileId, obj.database, obj.name)
-              : Promise.resolve(null),
-          ]);
-          data = tableData;
-          rowCount = count;
-        } catch {
-          // If SELECT fails, still show CREATE
-        }
+      // Cache column info if fetched
+      const colData = cols.status === "fulfilled" && cols.value ? cols.value : null;
+      const idxData = idxs.status === "fulfilled" && idxs.value ? idxs.value : null;
+      const fkData = fks.status === "fulfilled" && fks.value ? fks.value : null;
+      if (colData || idxData || fkData) {
+        set((st) => ({
+          tableColumns: colData ? { ...st.tableColumns, [tblKey]: colData } : st.tableColumns,
+          tableIndexes: idxData ? { ...st.tableIndexes, [tblKey]: idxData } : st.tableIndexes,
+          tableForeignKeys: fkData ? { ...st.tableForeignKeys, [tblKey]: fkData } : st.tableForeignKeys,
+        }));
       }
 
       set({
         objectData: data,
-        objectCreateStmt: createStmt,
-        objectRowCount: rowCount,
+        objectCreateStmt: ddl,
+        objectRowCount: count,
         objectLoading: false,
-        objectViewTab: "data",
+        objectHasMore: isTabular && (data?.rows.length ?? 0) >= PAGE,
+        objectViewTab: isTabular ? "columns" : "ddl",
       });
     } catch (e) {
       const msg = (e as { message?: string }).message ?? "Failed";
-      set({
-        objectLoading: false,
-        objectCreateStmt: `-- Error loading ${obj.type} ${obj.name}:\n-- ${msg}`,
-      });
+      set({ objectLoading: false, objectCreateStmt: `-- Error: ${msg}` });
+    }
+  },
+
+  loadMoreObjectData: async (profileId: string) => {
+    const { selectedObject, objectData } = get();
+    if (!selectedObject || !objectData) return;
+    const PAGE = 200;
+    set({ objectLoadingMore: true });
+    try {
+      const more = await api.showTableData(
+        profileId, selectedObject.database, selectedObject.name,
+        PAGE, objectData.rows.length
+      );
+      set((st) => ({
+        objectData: st.objectData ? {
+          ...st.objectData,
+          rows: [...st.objectData.rows, ...more.rows],
+        } : more,
+        objectHasMore: more.rows.length >= PAGE,
+        objectLoadingMore: false,
+      }));
+    } catch {
+      set({ objectLoadingMore: false });
     }
   },
 

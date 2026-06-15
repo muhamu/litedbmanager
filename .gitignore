@@ -19,3 +19,7 @@ src-tauri/target/
 .idea
 *.suo
 *.sw?
+
+# Claude Code
+CLAUDE.md
+NEXT_VER.md

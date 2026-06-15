@@ -68,6 +68,7 @@ interface TreeNodeProps {
   selected?: boolean;
   onToggle?: () => void;
   onSelect?: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   children?: React.ReactNode;
 }
 
@@ -80,6 +81,7 @@ function TreeNode({
   selected,
   onToggle,
   onSelect,
+  onContextMenu,
   children,
 }: TreeNodeProps) {
   const hasChildren = children !== undefined;
@@ -94,6 +96,7 @@ function TreeNode({
             : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
         }`}
         style={{ paddingLeft: indent }}
+        onContextMenu={onContextMenu}
       >
         <span
           className="flex-shrink-0 w-4 h-4 flex items-center justify-center"
@@ -502,6 +505,7 @@ export function SchemaTree() {
               expanded={dbExpanded}
               loading={loading[`db:${db}`]}
               onToggle={() => connectedId && toggleDatabase(connectedId, db)}
+              onContextMenu={(e) => handleContextMenu(e, "database", db, db)}
               selected={false}
             >
               {dbExpanded && (

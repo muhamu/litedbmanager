@@ -23,10 +23,10 @@ pub async fn save_profile(
     let now = chrono_now();
 
     // Validate db_type
-    if input.db_type != "mysql" && input.db_type != "postgres" {
+    if !matches!(input.db_type.as_str(), "mysql" | "postgres" | "clickhouse") {
         return Err(AppError {
             code: "INVALID_DB_TYPE".into(),
-            message: "Database type must be 'mysql' or 'postgres'".into(),
+            message: "Database type must be 'mysql', 'postgres', or 'clickhouse'".into(),
             hint: None,
         });
     }
@@ -76,10 +76,10 @@ pub async fn test_connection(
     ssl: bool,
     db_type: String,
 ) -> Result<String, AppError> {
-    if db_type != "mysql" && db_type != "postgres" {
+    if !matches!(db_type.as_str(), "mysql" | "postgres" | "clickhouse") {
         return Err(AppError {
             code: "INVALID_DB_TYPE".into(),
-            message: "Database type must be 'mysql' or 'postgres'".into(),
+            message: "Database type must be 'mysql', 'postgres', or 'clickhouse'".into(),
             hint: None,
         });
     }
