@@ -4,7 +4,7 @@ GUI ringan untuk MySQL / MariaDB / PostgreSQL. Dibangun dengan Tauri — native 
 
 A lightweight GUI for MySQL / MariaDB / PostgreSQL. Built with Tauri — native macOS, not Electron.
 
-![LiteDB Manager](screenshots.png)
+![LiteDB Manager](preview.png)
 
 ---
 
