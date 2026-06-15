@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Code2, Eye, Table2, FileDown, FileUp, GitCompareArrows, Copy, ClipboardPaste,
   Trash2, Pencil, RefreshCw, Eraser, Unplug, SquareTerminal, ChevronRight, FileCode,
+  Terminal,
 } from "lucide-react";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useQueryStore } from "../../stores/queryStore";
@@ -45,9 +46,9 @@ function pickSqlFile(): Promise<string | null> {
 const errMsg = (e: unknown) => (e as { message?: string }).message ?? "Unknown error";
 
 export function ContextMenu() {
-  const { contextMenu, closeContextMenu, selectObject, setObjectViewTab, closeObjectViewer, reloadTable, reloadDatabase } = useSchemaStore();
+  const { contextMenu, closeContextMenu, reloadTable, reloadDatabase } = useSchemaStore();
   const { connectedId, profiles, disconnect } = useConnectionStore();
-  const { newTab } = useQueryStore();
+  const { newTab, openTableTab } = useQueryStore();
   const ref = useRef<HTMLDivElement>(null);
   const [openSub, setOpenSub] = useState<string | null>(null);
 
@@ -73,7 +74,6 @@ export function ContextMenu() {
   const { x, y, type, database, object } = contextMenu;
   const dbType = profiles.find((p) => p.id === connectedId)?.db_type ?? "mysql";
 
-  // ── Identifier quoting per dialect ──
   const quoteId = (id: string) =>
     dbType === "postgres" ? `"${id.replace(/"/g, '""')}"` : `\`${id.replace(/`/g, "``")}\``;
   const fqn = `${quoteId(database)}.${quoteId(object)}`;
@@ -87,7 +87,7 @@ export function ContextMenu() {
       : /^-?\d+(\.\d+)?$/.test(String(v)) ? String(v)
       : `'${String(v).replace(/'/g, "''")}'`;
 
-  const openInTab = (sql: string) => { closeObjectViewer(); newTab(sql); };
+  const openInTab = (sql: string) => { newTab(sql); };
 
   // ── Generate SQL ──
   const genSelect = async () => {
@@ -116,6 +116,23 @@ export function ContextMenu() {
     const cols = await api.listColumns(connectedId, database, object);
     openInTab(`DELETE FROM ${fqn}\nWHERE ${keyCond(cols)};`);
   };
+  const genMerge = async () => {
+    const cols = await api.listColumns(connectedId, database, object);
+    const pks = cols.filter((c) => c.key === "PRI");
+    const keyCols = pks.length ? pks : cols.slice(0, 1);
+    const setCols = cols.filter((c) => c.key !== "PRI");
+    const updateSet = (setCols.length ? setCols : cols)
+      .map((c) => `  target.${quoteId(c.name)} = source.${quoteId(c.name)}`).join(",\n");
+    openInTab(
+      `MERGE INTO ${fqn} AS target\n` +
+      `USING (SELECT ${cols.map((c) => `${sample(c.col_type)} AS ${quoteId(c.name)}`).join(", ")}) AS source\n` +
+      `ON (${keyCols.map((c) => `target.${quoteId(c.name)} = source.${quoteId(c.name)}`).join(" AND ")})\n` +
+      `WHEN MATCHED THEN\n  UPDATE SET\n${updateSet}\n` +
+      `WHEN NOT MATCHED THEN\n` +
+      `  INSERT (${cols.map((c) => quoteId(c.name)).join(", ")})\n` +
+      `  VALUES (${cols.map((c) => `source.${quoteId(c.name)}`).join(", ")});`,
+    );
+  };
   const genDdl = async () => {
     const ddl = await api.getCreateStatement(connectedId, database, object, type);
     openInTab(ddl.trim().endsWith(";") ? ddl : `${ddl};`);
@@ -123,7 +140,6 @@ export function ContextMenu() {
 
   // ── Export / dump / import ──
   const exportData = async (fmt: "csv" | "json") => {
-    // ponytail: loads the whole table into memory — fine for typical tables; stream if you hit huge ones.
     const data = await api.executeQuery(connectedId, `SELECT * FROM ${fqn}`);
     const res = fmt === "csv"
       ? await api.exportCsv(data.columns, data.rows, ",", true)
@@ -133,7 +149,7 @@ export function ContextMenu() {
   const dumpSql = async () => {
     const data = await api.executeQuery(connectedId, `SELECT * FROM ${fqn}`);
     let ddl = "";
-    try { ddl = await api.getCreateStatement(connectedId, database, object, type); } catch { /* keep going */ }
+    try { ddl = await api.getCreateStatement(connectedId, database, object, type); } catch { /* ok */ }
     const colList = data.columns.map(quoteId).join(", ");
     const lines = [`-- Dump of ${database}.${object} (${data.rows.length} rows)`, ""];
     if (ddl) lines.push(ddl.trim().endsWith(";") ? ddl : `${ddl};`, "");
@@ -183,54 +199,57 @@ export function ContextMenu() {
     catch (e) { alert(`Error: ${errMsg(e)}`); }
   };
 
-  // ── View ──
+  // ── View ── opens TableViewer tab
   const sel: SelectedObject = { database, name: object, type: type as SelectedObject["type"] };
-  const viewData = async () => { await selectObject(connectedId, sel); setObjectViewTab("data"); };
-  const viewTable = async () => { await selectObject(connectedId, sel); setObjectViewTab("columns"); };
+  const viewTable = () => openTableTab(database, object, sel.type === "view" ? "view" : "table", "properties");
+  const viewData  = () => openTableTab(database, object, sel.type === "view" ? "view" : "table", "data");
 
-  // ── Build menus per node type ──
+  // ── Menus ──
   const tabular = type === "table" || type === "view";
 
   const tableMenu: Item[] = [
+    { kind: "action", label: "View Table", icon: <Table2 size={14} />, shortcut: "F4", run: viewTable },
+    { kind: "action", label: "View Data",  icon: <Eye size={14} />,    run: viewData },
+    { kind: "sep" },
+    { kind: "sub", label: "Compare / Migrate", icon: <GitCompareArrows size={14} />, items: [
+      { kind: "action", label: "Dump to SQL file",  icon: <FileDown size={14} />, run: dumpSql },
+      { kind: "action", label: "Import SQL file",   icon: <FileUp size={14} />,   run: importSql },
+    ] },
+    { kind: "sub", label: "Export Data", icon: <FileDown size={14} />, items: [
+      { kind: "action", label: "Export as CSV",  run: () => exportData("csv") },
+      { kind: "action", label: "Export as JSON", run: () => exportData("json") },
+    ] },
+    { kind: "action", label: "Import Data", icon: <FileUp size={14} />, run: importSql },
+    { kind: "sep" },
     { kind: "sub", label: "Generate SQL", icon: <Code2 size={14} />, items: [
       { kind: "action", label: "SELECT", run: genSelect },
       { kind: "action", label: "INSERT", run: genInsert },
       { kind: "action", label: "UPDATE", run: genUpdate },
       { kind: "action", label: "DELETE", run: genDelete },
+      { kind: "action", label: "MERGE",  run: genMerge },
       { kind: "sep" },
       { kind: "action", label: "DDL (CREATE)", icon: <FileCode size={14} />, run: genDdl },
     ] },
+    { kind: "action", label: "Read data in SQL console", icon: <Terminal size={14} />, run: () => openInTab(`SELECT * FROM ${fqn}\nLIMIT 1000;`) },
     { kind: "sep" },
-    { kind: "action", label: "View Data", icon: <Eye size={14} />, run: viewData },
-    { kind: "action", label: "View Table", icon: <Table2 size={14} />, run: viewTable },
-    { kind: "sep" },
-    { kind: "sub", label: "Export Data", icon: <FileDown size={14} />, items: [
-      { kind: "action", label: "Export as CSV", run: () => exportData("csv") },
-      { kind: "action", label: "Export as JSON", run: () => exportData("json") },
-    ] },
-    { kind: "sub", label: "Compare / Migrate", icon: <GitCompareArrows size={14} />, items: [
-      { kind: "action", label: "Dump to SQL file", icon: <FileDown size={14} />, run: dumpSql },
-      { kind: "action", label: "Import SQL file", icon: <FileUp size={14} />, run: importSql },
-    ] },
-    { kind: "sep" },
-    { kind: "action", label: "Copy Name", icon: <Copy size={14} />, shortcut: "⌘C", run: () => copy(object) },
-    { kind: "action", label: "Copy Qualified Name", run: () => copy(fqn) },
-    { kind: "action", label: "Paste", icon: <ClipboardPaste size={14} />, shortcut: "⌘V", run: pasteToTab },
+    { kind: "action", label: "Copy",              icon: <Copy size={14} />,          shortcut: "⌘C",  run: () => copy(object) },
+    { kind: "action", label: "Paste",             icon: <ClipboardPaste size={14} />, shortcut: "⌘V", run: pasteToTab },
+    { kind: "action", label: "Copy Advanced Info", run: () => copy(fqn) },
     { kind: "sep" },
     ...(type === "table" ? [{ kind: "action", label: "Truncate", icon: <Eraser size={14} />, danger: true, run: truncate } as Item] : []),
-    { kind: "action", label: "Rename", icon: <Pencil size={14} />, shortcut: "F2", run: rename },
-    { kind: "action", label: "Delete (Drop)", icon: <Trash2 size={14} />, danger: true, run: drop },
+    { kind: "action", label: "Delete",  icon: <Trash2 size={14} />, danger: true, run: drop },
+    { kind: "action", label: "Rename",  icon: <Pencil size={14} />, shortcut: "F2", run: rename },
     { kind: "sep" },
     { kind: "action", label: "Refresh", icon: <RefreshCw size={14} />, shortcut: "F5", run: () => reloadTable(connectedId, database, object) },
   ];
 
   const objectMenu: Item[] = [
-    { kind: "action", label: "Show DDL", icon: <FileCode size={14} />, run: genDdl },
-    { kind: "action", label: "Copy Name", icon: <Copy size={14} />, run: () => copy(object) },
-    { kind: "action", label: "Copy Qualified Name", run: () => copy(fqn) },
+    { kind: "action", label: "Show DDL",            icon: <FileCode size={14} />, run: genDdl },
+    { kind: "action", label: "Copy",                icon: <Copy size={14} />,    run: () => copy(object) },
+    { kind: "action", label: "Copy Advanced Info",                               run: () => copy(fqn) },
     { kind: "sep" },
     { kind: "action", label: "Delete (Drop)", icon: <Trash2 size={14} />, danger: true, run: drop },
-    { kind: "action", label: "Refresh", icon: <RefreshCw size={14} />, run: () => reloadDatabase(connectedId, database) },
+    { kind: "action", label: "Refresh",       icon: <RefreshCw size={14} />,           run: () => reloadDatabase(connectedId, database) },
   ];
 
   const databaseMenu: Item[] = [
@@ -244,11 +263,11 @@ export function ContextMenu() {
       { kind: "action", label: "Import SQL file", icon: <FileUp size={14} />, run: importSql },
     ] },
     { kind: "sep" },
-    { kind: "action", label: "Copy Name", icon: <Copy size={14} />, shortcut: "⌘C", run: () => copy(object) },
+    { kind: "action", label: "Copy",  icon: <Copy size={14} />,          shortcut: "⌘C", run: () => copy(object) },
     { kind: "action", label: "Paste", icon: <ClipboardPaste size={14} />, shortcut: "⌘V", run: pasteToTab },
     { kind: "sep" },
     { kind: "action", label: "Invalidate / Reconnect", icon: <RefreshCw size={14} />, run: () => reloadDatabase(connectedId, object) },
-    { kind: "action", label: "Disconnect", icon: <Unplug size={14} />, danger: true, run: () => disconnect(connectedId) },
+    { kind: "action", label: "Disconnect",              icon: <Unplug size={14} />, danger: true, run: () => disconnect(connectedId) },
     { kind: "sep" },
     { kind: "action", label: "Refresh", icon: <RefreshCw size={14} />, shortcut: "F5", run: () => reloadDatabase(connectedId, object) },
   ];
@@ -256,7 +275,6 @@ export function ContextMenu() {
   const items: Item[] =
     type === "database" ? databaseMenu : tabular ? tableMenu : objectMenu;
 
-  // open submenus to the left when near the right screen edge
   const flip = x > window.innerWidth - 380;
 
   const fire = (run: () => void | Promise<void>) => {
@@ -303,8 +321,8 @@ export function ContextMenu() {
   return (
     <div
       ref={ref}
-      className="fixed z-50 min-w-[210px] rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#2d2d2d] py-1 shadow-xl"
-      style={{ left: Math.min(x, window.innerWidth - 230), top: Math.min(y, window.innerHeight - 200) }}
+      className="fixed z-50 min-w-[220px] rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#2d2d2d] py-1 shadow-xl"
+      style={{ left: Math.min(x, window.innerWidth - 240), top: Math.min(y, window.innerHeight - 300) }}
       onMouseLeave={() => setOpenSub(null)}
     >
       {items.map((item, i) => renderRow(item, i))}

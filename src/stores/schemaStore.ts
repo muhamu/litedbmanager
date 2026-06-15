@@ -234,60 +234,8 @@ export const useSchemaStore = create<SchemaState>((set, get) => ({
 
   setContextMenu: (menu) => set({ contextMenu: menu }),
 
-  selectObject: async (profileId: string, obj: SelectedObject) => {
-    const PAGE = 200;
-    set({
-      selectedObject: obj,
-      selectedDb: obj.database,
-      objectLoading: true,
-      objectData: null,
-      objectCreateStmt: null,
-      objectRowCount: null,
-      objectHasMore: false,
-    });
-
-    const isTabular = obj.type === "table" || obj.type === "view";
-    const tblKey = `${obj.database}.${obj.name}`;
-
-    try {
-      // Fetch everything in parallel: DDL + data + count + columns
-      const [createStmt, tableData, rowCount, cols, idxs, fks] = await Promise.allSettled([
-        api.getCreateStatement(profileId, obj.database, obj.name, obj.type),
-        isTabular ? api.showTableData(profileId, obj.database, obj.name, PAGE, 0) : Promise.resolve(null),
-        isTabular && obj.type === "table" ? api.countTableRows(profileId, obj.database, obj.name) : Promise.resolve(null),
-        isTabular && !get().tableColumns[tblKey] ? api.listColumns(profileId, obj.database, obj.name) : Promise.resolve(null),
-        isTabular && !get().tableIndexes[tblKey] ? api.listIndexes(profileId, obj.database, obj.name) : Promise.resolve(null),
-        isTabular && !get().tableForeignKeys[tblKey] ? api.listForeignKeys(profileId, obj.database, obj.name) : Promise.resolve(null),
-      ]);
-
-      const ddl = createStmt.status === "fulfilled" ? createStmt.value : `-- Error loading DDL --`;
-      const data = tableData.status === "fulfilled" ? tableData.value : null;
-      const count = rowCount.status === "fulfilled" ? rowCount.value : null;
-
-      // Cache column info if fetched
-      const colData = cols.status === "fulfilled" && cols.value ? cols.value : null;
-      const idxData = idxs.status === "fulfilled" && idxs.value ? idxs.value : null;
-      const fkData = fks.status === "fulfilled" && fks.value ? fks.value : null;
-      if (colData || idxData || fkData) {
-        set((st) => ({
-          tableColumns: colData ? { ...st.tableColumns, [tblKey]: colData } : st.tableColumns,
-          tableIndexes: idxData ? { ...st.tableIndexes, [tblKey]: idxData } : st.tableIndexes,
-          tableForeignKeys: fkData ? { ...st.tableForeignKeys, [tblKey]: fkData } : st.tableForeignKeys,
-        }));
-      }
-
-      set({
-        objectData: data,
-        objectCreateStmt: ddl,
-        objectRowCount: count,
-        objectLoading: false,
-        objectHasMore: isTabular && (data?.rows.length ?? 0) >= PAGE,
-        objectViewTab: isTabular ? "columns" : "ddl",
-      });
-    } catch (e) {
-      const msg = (e as { message?: string }).message ?? "Failed";
-      set({ objectLoading: false, objectCreateStmt: `-- Error: ${msg}` });
-    }
+  selectObject: async (_profileId: string, obj: SelectedObject) => {
+    set({ selectedObject: obj, selectedDb: obj.database });
   },
 
   loadMoreObjectData: async (profileId: string) => {

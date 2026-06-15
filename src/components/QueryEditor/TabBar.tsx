@@ -1,8 +1,8 @@
-import { X, Plus, Circle } from "lucide-react";
-import type { QueryTab } from "../../stores/queryStore";
+import { X, Plus, Circle, Table2 } from "lucide-react";
+import type { Tab } from "../../stores/queryStore";
 
 interface TabBarProps {
-  tabs: QueryTab[];
+  tabs: Tab[];
   activeTabId: string | null;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
@@ -30,6 +30,7 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onNew }: TabBarPr
       <div className="flex flex-1 overflow-x-auto">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
+          const isTable = tab.kind === "table";
           return (
             <div
               key={tab.id}
@@ -40,11 +41,12 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose, onNew }: TabBarPr
                   : "bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
               }`}
             >
-              {tab.running && (
+              {isTable && <Table2 size={10} className="flex-shrink-0 text-blue-400" />}
+              {!isTable && tab.kind === "sql" && tab.running && (
                 <Circle size={8} className="text-blue-500 animate-pulse fill-blue-500 flex-shrink-0" />
               )}
               <span className="truncate flex-1">{tab.name}</span>
-              {tab.modified && (
+              {!isTable && tab.kind === "sql" && tab.modified && (
                 <span className="w-1.5 h-1.5 rounded-full bg-gray-400 dark:bg-gray-500 flex-shrink-0" />
               )}
               <button

@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { QueryEditor } from "./components/QueryEditor";
-import { ObjectViewer } from "./components/ObjectViewer";
 import { ConnectionManager } from "./components/ConnectionManager";
 import { SchemaBrowser } from "./components/SchemaBrowser";
 import { ThemeToggle } from "./components/shared/ThemeToggle";
@@ -73,7 +72,7 @@ function Breadcrumb() {
 
 function App() {
   const { connectedId, serverVersion, profiles, disconnect } = useConnectionStore();
-  const { clearSchema, selectedObject, closeObjectViewer } = useSchemaStore();
+  const { clearSchema, closeObjectViewer } = useSchemaStore();
   const { theme } = useThemeStore();
   const { newTab } = useQueryStore();
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -186,7 +185,7 @@ function App() {
         {/* ── Main ── */}
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-white dark:bg-[#1e1e1e]">
           {connectedId && connectedProfile ? (
-            selectedObject ? <ObjectViewer /> : <QueryEditor />
+            <QueryEditor />
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">

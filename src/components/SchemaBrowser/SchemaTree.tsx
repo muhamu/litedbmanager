@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useSchemaStore } from "../../stores/schemaStore";
+import { useQueryStore } from "../../stores/queryStore";
 import type { SelectedObject } from "../../stores/schemaStore";
 import type { ColumnInfo, IndexInfo, ForeignKeyInfo } from "../../lib/tauri";
 
@@ -222,6 +223,7 @@ function TableNode({
   foreignKeys,
   onToggle,
   onSelect,
+  onDoubleClick,
   onContextMenu,
 }: {
   name: string;
@@ -234,6 +236,7 @@ function TableNode({
   foreignKeys: ForeignKeyInfo[] | undefined;
   onToggle: () => void;
   onSelect: () => void;
+  onDoubleClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
   return (
@@ -246,6 +249,7 @@ function TableNode({
             : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
         }`}
         style={{ paddingLeft: depth * 14 + 6 }}
+        onContextMenu={onContextMenu}
       >
         <span className="flex-shrink-0 w-4 h-4 flex items-center justify-center" onClick={onToggle}>
           {loading ? (
@@ -265,18 +269,13 @@ function TableNode({
         <span
           className="truncate flex-1 cursor-pointer"
           onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick(); }}
         >
           {name}
         </span>
-        <span
-          className="cursor-pointer"
-          onClick={(e) => { e.stopPropagation(); onSelect(); }}
-          onContextMenu={onContextMenu}
-        >
-          {columns && (
-            <span className="text-[9px] text-gray-400 dark:text-gray-500 mr-1">{columns.length} cols</span>
-          )}
-        </span>
+        {columns && (
+          <span className="text-[9px] text-gray-400 dark:text-gray-500 mr-1">{columns.length} cols</span>
+        )}
       </div>
 
       {expanded && (
@@ -393,6 +392,7 @@ export function SchemaTree() {
     selectObject,
     setContextMenu,
   } = useSchemaStore();
+  const { openTableTab } = useQueryStore();
 
   const [filter, setFilter] = useState("");
   const dbLoading = loading["databases"];
@@ -536,6 +536,7 @@ export function SchemaTree() {
                         foreignKeys={tableForeignKeys[tblKey]}
                         onToggle={() => toggleTable(connectedId, db, tbl.name)}
                         onSelect={() => handleObjectSelect(db, tbl.name, "table")}
+                        onDoubleClick={() => openTableTab(db, tbl.name, "table")}
                         onContextMenu={(e) => handleContextMenu(e, "table", db, tbl.name)}
                       />
                     );

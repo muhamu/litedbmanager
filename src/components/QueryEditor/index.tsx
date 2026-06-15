@@ -6,6 +6,7 @@ import { useSchemaStore } from "../../stores/schemaStore";
 import { TabBar } from "./TabBar";
 import { EditorPane, type EditorPaneHandle } from "./EditorPane";
 import { ResultGrid } from "../ResultGrid";
+import { TableViewer } from "../TableViewer";
 import * as api from "../../lib/tauri";
 import type { AutocompleteItem } from "../../lib/tauri";
 
@@ -30,6 +31,7 @@ export function QueryEditor() {
   const editorRef = useRef<EditorPaneHandle>(null);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
+  const activeSqlTab = activeTab?.kind === "sql" ? activeTab : null;
   const connectedProfile = profiles.find((p) => p.id === connectedId);
 
   useEffect(() => {
@@ -62,7 +64,7 @@ export function QueryEditor() {
         editorRef.current?.openSearch();
       } else if (e.key === "s") {
         e.preventDefault();
-        if (activeTab?.sql.trim()) {
+        if (activeTab?.kind === "sql" && activeTab.sql.trim()) {
           setSaveName(activeTab.name);
           setShowSaveDialog(true);
         }
@@ -86,7 +88,7 @@ export function QueryEditor() {
 
   const handleExportCsv = () => {
     const tab = tabs.find((t) => t.id === activeTabId);
-    if (!tab?.result) return;
+    if (!tab || tab.kind !== "sql" || !tab.result) return;
     const { columns, rows } = tab.result;
     api.exportCsv(columns, rows, ",", true).then((res) => {
       const url = URL.createObjectURL(new Blob([res.data], { type: "text/csv" }));
@@ -100,7 +102,7 @@ export function QueryEditor() {
 
   const handleExportJson = () => {
     const tab = tabs.find((t) => t.id === activeTabId);
-    if (!tab?.result) return;
+    if (!tab || tab.kind !== "sql" || !tab.result) return;
     const { columns, rows } = tab.result;
     api.exportJson(columns, rows, true).then((res) => {
       const url = URL.createObjectURL(new Blob([res.data], { type: "application/json" }));
@@ -130,6 +132,18 @@ export function QueryEditor() {
     );
   }
 
+  // Table-viewer tabs bypass the SQL editor entirely
+  if (activeTab?.kind === "table") {
+    return (
+      <div className="flex flex-col h-full bg-white dark:bg-[#1e1e1e]">
+        <TabBar tabs={tabs} activeTabId={activeTabId} onSelect={setActiveTab} onClose={closeTab} onNew={() => newTab()} />
+        <div className="flex-1 overflow-hidden">
+          <TableViewer tab={activeTab} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-white dark:bg-[#1e1e1e]">
       {/* Toolbar */}
@@ -145,7 +159,7 @@ export function QueryEditor() {
         <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
         <button
           onClick={handleExecute}
-          disabled={!activeTab?.sql.trim() || activeTab?.running}
+          disabled={!activeSqlTab?.sql.trim() || activeSqlTab?.running}
           className="inline-flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           title="Run selection or full query (Ctrl+Enter)"
         >
@@ -162,12 +176,12 @@ export function QueryEditor() {
         </button>
         <button
           onClick={() => {
-            if (activeTab?.sql.trim()) {
-              setSaveName(activeTab.name);
+            if (activeSqlTab?.sql.trim()) {
+              setSaveName(activeSqlTab.name);
               setShowSaveDialog(true);
             }
           }}
-          disabled={!activeTab?.sql.trim()}
+          disabled={!activeSqlTab?.sql.trim()}
           className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
           title="Save query (Ctrl+S)"
         >
@@ -175,7 +189,7 @@ export function QueryEditor() {
           Save
         </button>
         <div className="w-px h-4 bg-gray-300 dark:bg-gray-600 mx-1" />
-        {activeTab?.result && activeTab.result.rows.length > 0 && (
+        {activeSqlTab?.result && activeSqlTab.result.rows.length > 0 && (
           <>
             <button
               onClick={handleExportCsv}
@@ -209,12 +223,12 @@ export function QueryEditor() {
       {/* Editor + Results split */}
       <div className="flex-1 flex flex-col min-h-0">
         <div className="flex-1 min-h-[120px] overflow-hidden border-b border-gray-200 dark:border-gray-700">
-          {activeTab ? (
+          {activeSqlTab ? (
             <EditorPane
               ref={editorRef}
-              key={`editor-${activeTab.id}`}
-              value={activeTab.sql}
-              onChange={(s) => updateSql(activeTab.id, s)}
+              key={`editor-${activeSqlTab.id}`}
+              value={activeSqlTab.sql}
+              onChange={(s) => updateSql(activeSqlTab.id, s)}
               onExecute={handleExecute}
               onExecuteAll={handleExecuteAll}
               dbType={dbType}
@@ -232,9 +246,9 @@ export function QueryEditor() {
 
         <div className="flex-1 min-h-[100px] overflow-hidden">
           <ResultGrid
-            result={activeTab?.result ?? null}
-            error={activeTab?.error ?? null}
-            running={activeTab?.running ?? false}
+            result={activeSqlTab?.result ?? null}
+            error={activeSqlTab?.error ?? null}
+            running={activeSqlTab?.running ?? false}
           />
         </div>
       </div>
