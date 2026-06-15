@@ -1,4 +1,46 @@
 use crate::error::AppError;
+use tauri_plugin_dialog::DialogExt;
+
+/// Open a native OS save dialog then write content to the chosen path.
+/// Returns true if saved, false if the user cancelled.
+#[tauri::command]
+pub async fn save_to_file(
+    app: tauri::AppHandle,
+    content: String,
+    default_name: String,
+    extension: String,
+) -> Result<bool, AppError> {
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<std::path::PathBuf>>();
+    let filter_label = extension.to_uppercase();
+    let ext = extension.clone();
+
+    app.dialog()
+        .file()
+        .set_file_name(&default_name)
+        .add_filter(filter_label, &[ext.as_str()])
+        .save_file(move |path| {
+            let pb = path.and_then(|p| p.into_path().ok());
+            let _ = tx.send(pb);
+        });
+
+    let chosen = rx.await.map_err(|_| AppError {
+        code: "DIALOG_ERROR".to_string(),
+        message: "Save dialog closed unexpectedly".to_string(),
+        hint: None,
+    })?;
+
+    match chosen {
+        None => Ok(false),
+        Some(path) => {
+            std::fs::write(&path, content.as_bytes()).map_err(|e| AppError {
+                code: "FILE_WRITE_ERROR".to_string(),
+                message: e.to_string(),
+                hint: None,
+            })?;
+            Ok(true)
+        }
+    }
+}
 
 #[derive(serde::Serialize)]
 pub struct ExportResult {

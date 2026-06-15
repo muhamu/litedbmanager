@@ -17,15 +17,6 @@ type Item =
   | { kind: "sub"; label: string; icon?: React.ReactNode; items: Item[] };
 
 // ── Helpers ──
-function download(filename: string, content: string, mime: string) {
-  const url = URL.createObjectURL(new Blob([content], { type: mime }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
 function pickSqlFile(): Promise<string | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
@@ -144,7 +135,7 @@ export function ContextMenu() {
     const res = fmt === "csv"
       ? await api.exportCsv(data.columns, data.rows, ",", true)
       : await api.exportJson(data.columns, data.rows, true);
-    download(res.filename, res.data, fmt === "csv" ? "text/csv" : "application/json");
+    await api.saveToFile(res.data, `${object}.${fmt}`, fmt);
   };
   const dumpSql = async () => {
     const data = await api.executeQuery(connectedId, `SELECT * FROM ${fqn}`);
@@ -156,7 +147,7 @@ export function ContextMenu() {
     for (const row of data.rows) {
       lines.push(`INSERT INTO ${fqn} (${colList}) VALUES (${row.map(sqlLiteral).join(", ")});`);
     }
-    download(`${object}.sql`, lines.join("\n"), "application/sql");
+    await api.saveToFile(lines.join("\n"), `${object}.sql`, "sql");
   };
   const importSql = async () => {
     const sql = await pickSqlFile();

@@ -252,3 +252,13 @@ export async function exportJson(
 ): Promise<ExportResult> {
   return invoke("export_json", { columns, rows, pretty });
 }
+
+/** Open a native OS save dialog and write content to the chosen file.
+ *  Returns true if saved, false if the user cancelled. */
+export async function saveToFile(
+  content: string,
+  defaultName: string,
+  extension: string,
+): Promise<boolean> {
+  return invoke("save_to_file", { content, defaultName, extension });
+}

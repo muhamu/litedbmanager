@@ -90,28 +90,18 @@ export function QueryEditor() {
     const tab = tabs.find((t) => t.id === activeTabId);
     if (!tab || tab.kind !== "sql" || !tab.result) return;
     const { columns, rows } = tab.result;
-    api.exportCsv(columns, rows, ",", true).then((res) => {
-      const url = URL.createObjectURL(new Blob([res.data], { type: "text/csv" }));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = res.filename;
-      a.click();
-      URL.revokeObjectURL(url);
-    }).catch(console.error);
+    api.exportCsv(columns, rows, ",", true)
+      .then((res) => api.saveToFile(res.data, "export.csv", "csv"))
+      .catch(console.error);
   };
 
   const handleExportJson = () => {
     const tab = tabs.find((t) => t.id === activeTabId);
     if (!tab || tab.kind !== "sql" || !tab.result) return;
     const { columns, rows } = tab.result;
-    api.exportJson(columns, rows, true).then((res) => {
-      const url = URL.createObjectURL(new Blob([res.data], { type: "application/json" }));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = res.filename;
-      a.click();
-      URL.revokeObjectURL(url);
-    }).catch(console.error);
+    api.exportJson(columns, rows, true)
+      .then((res) => api.saveToFile(res.data, "export.json", "json"))
+      .catch(console.error);
   };
 
   const handleSave = () => {

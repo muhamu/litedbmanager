@@ -59,6 +59,7 @@ pub fn run() {
             schema::get_autocomplete_data,
             export::export_csv,
             export::export_json,
+            export::save_to_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

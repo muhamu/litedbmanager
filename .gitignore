@@ -20,6 +20,11 @@ src-tauri/target/
 *.suo
 *.sw?
 
-# Claude Code
+# Claude Code / local artifacts
 CLAUDE.md
 NEXT_VER.md
+*.md
+*.MD
+*.png
+*.jpg
+*.jpeg
